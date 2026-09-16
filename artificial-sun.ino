@@ -169,7 +169,7 @@ public:
 
 // Instantiate button objects
 Button leftButton(buttonPin_l);
-Button centerButton(centerButtonPin);
+Button centerButton(buttonPin_c);
 Button rightButton(buttonPin_r);
 
 // Explicit declarations also keep Arduino's sketch preprocessor happy.

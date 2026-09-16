@@ -49,8 +49,8 @@ const int ledPin = 6; // Nano Every D6 = PF4 = TCB0 output
 
 // The core's TCA0 runs at CPU / 64 with a 256-count period. Leave that
 // configuration alone: other Arduino timers use its clock for timekeeping.
-// TCB0 runs at the full CPU clock, giving 16384 pulse-width steps per period
-// (about 977 Hz at 16 MHz), instead of analogWrite()'s 256 steps.
+// TCB0 runs at the full CPU clock, giving nominally 16384 pulse-width steps
+// per period (about 977 Hz at 16 MHz), instead of analogWrite()'s 256 steps.
 const uint16_t LED_PWM_PERIOD = 16384;
 volatile uint16_t ledPulseTicks = 0;
 
@@ -92,8 +92,8 @@ ISR(TCA0_OVF_vect) {
   TCB0.CCMP = ticks;
   TCB0.CNT = 0;
   TCB0.CTRLB = TCB_CNTMODE_SINGLE_gc | TCB_CCMPEN_bm;
-  // In single-shot mode, enabling the timer with CNT < CCMP starts one
-  // pulse. Hardware ends it, even for pulses shorter than this ISR.
+  // Enabling single-shot mode with CNT < CCMP starts one pulse. Hardware
+  // ends it. Interrupt latency can shift its start, not extend a low-duty pulse.
   TCB0.CTRLA = TCB_CLKSEL_CLKDIV1_gc | TCB_ENABLE_bm;
 }
 
@@ -169,7 +169,7 @@ public:
 
 // Instantiate button objects
 Button leftButton(buttonPin_l);
-Button centerButton(buttonPin_c);
+Button centerButton(centerButtonPin);
 Button rightButton(buttonPin_r);
 
 // Explicit declarations also keep Arduino's sketch preprocessor happy.
@@ -267,7 +267,7 @@ void handleCenterButton(Button &button) {
 
   if (displayOn && !button.ignoreCurrentPress && button.isPressed()) {
     if (!centerButtonLongPressHandled) {
-      unsigned long pressDuration = currentMillis - button.pressStartTime;
+      unsigned long pressDuration = currentMillis - centerButtonPressTime;
       if (pressDuration >= LONG_PRESS_DURATION) {
         // Long press detected
         centerButtonLongPressHandled = true;
@@ -343,7 +343,7 @@ void updateDisplay() {
 }
 
 void updateBrightness() {
-  // Limit the expensive math to 100 Hz; the LED pulses independently in hardware.
+  // Limit the expensive math to 100 Hz; pulse widths are timed in hardware.
   static unsigned long lastBrightnessUpdateTime = 0;
   unsigned long elapsed = currentMillis - lastBrightnessUpdateTime;
   if (elapsed < BRIGHTNESS_UPDATE_INTERVAL) return;

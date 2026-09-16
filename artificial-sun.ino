@@ -1,4 +1,12 @@
+#include <Arduino.h>
+#include <math.h>
+#include <util/atomic.h>
 #include "SevSeg.h"
+
+#if !defined(ARDUINO_AVR_NANO_EVERY) || !defined(MILLIS_USE_TIMERB3)
+#error "Select Arduino Nano Every with the official Arduino megaAVR Boards core."
+#endif
+
 SevSeg sevseg; // Instantiate a seven-segment object
 
 // Timer variables
@@ -18,11 +26,14 @@ bool displayBlinkState = true;
 const unsigned long LONG_PRESS_DURATION = 1000;
 
 // LED brightness variables
-float currentBrightness = 0.0;
-const float smoothingFactor = 0.005;
+float currentBrightness = 0.0f;
+const unsigned long BRIGHTNESS_UPDATE_INTERVAL = 10; // milliseconds
+const float BRIGHTNESS_SMOOTHING_TIME = 500.0f;       // milliseconds
 
-// LED auto-off variables
-unsigned long ledTurnOffTime = 0;
+// LED auto-off variables. Keep the light off until a new session starts.
+unsigned long ledAutoOffStartTime = 0;
+bool ledAutoOffArmed = false;
+bool ledAutoOff = false;
 const unsigned long LED_AUTO_OFF_DURATION = 60UL * 60 * 1000;
 
 // Constants for acceleration effect
@@ -34,8 +45,75 @@ const unsigned long MAX_PRESS_DURATION = 6000;
 const int buttonPin_l = 19;
 const int buttonPin_c = 20;
 const int buttonPin_r = 21;
-const int ledPin = 6; // High-power LED pin
+const int ledPin = 6; // Nano Every D6 = PF4 = TCB0 output
 
+// The core's TCA0 runs at CPU / 64 with a 256-count period. Leave that
+// configuration alone: other Arduino timers use its clock for timekeeping.
+// TCB0 runs at the full CPU clock, giving 16384 pulse-width steps per period
+// (about 977 Hz at 16 MHz), instead of analogWrite()'s 256 steps.
+const uint16_t LED_PWM_PERIOD = 16384;
+volatile uint16_t ledPulseTicks = 0;
+
+void setupLedPwm() {
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
+
+  PORTMUX.TCBROUTEA |= PORTMUX_TCB0_bm; // Route TCB0 to PF4/D6.
+  TCB0.CTRLA = 0;
+  TCB0.CTRLB = TCB_CNTMODE_SINGLE_gc;
+  TCB0.EVCTRL = 0;
+  TCB0.INTCTRL = 0;
+  TCB0.INTFLAGS = TCB_CAPT_bm;
+
+  // Use the existing TCA0 overflow only as a pulse-start tick.
+  // TCB3 (millis/micros), TCA0's clock, and the display pins are unchanged.
+  TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
+  TCA0.SINGLE.INTCTRL |= TCA_SINGLE_OVF_bm;
+}
+
+ISR(TCA0_OVF_vect) {
+  TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
+  const uint16_t ticks = ledPulseTicks;
+
+  // Re-arm only at the start of a period. Never change CCMP mid-pulse:
+  // lowering it below CNT could otherwise produce an unexpectedly long pulse.
+  TCB0.CTRLA = 0;
+
+  if (ticks >= LED_PWM_PERIOD) {
+    PORTF.OUTSET = PIN4_bm;
+    TCB0.CTRLB = TCB_CNTMODE_SINGLE_gc; // Steady HIGH, no timer output.
+    return;
+  }
+
+  PORTF.OUTCLR = PIN4_bm;
+  TCB0.CTRLB = TCB_CNTMODE_SINGLE_gc; // Steady LOW when ticks == 0.
+  if (ticks == 0) return;
+
+  TCB0.CCMP = ticks;
+  TCB0.CNT = 0;
+  TCB0.CTRLB = TCB_CNTMODE_SINGLE_gc | TCB_CCMPEN_bm;
+  // In single-shot mode, enabling the timer with CNT < CCMP starts one
+  // pulse. Hardware ends it, even for pulses shorter than this ISR.
+  TCB0.CTRLA = TCB_CLKSEL_CLKDIV1_gc | TCB_ENABLE_bm;
+}
+
+void writeLedPwm(uint16_t ticks) {
+  if (ticks > LED_PWM_PERIOD) ticks = LED_PWM_PERIOD;
+  // A 16-bit write is not atomic on this 8-bit MCU.
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    ledPulseTicks = ticks;
+  }
+}
+
+uint16_t convertToPWM(float brightnessValue) {
+  // Zero-anchored exponential curve: 0 -> off, 1 -> fully on.
+  // Keep fractional precision until the final 14-bit rounding step.
+  if (!(brightnessValue > 0.0f)) return 0;
+  if (brightnessValue >= 1.0f) return LED_PWM_PERIOD;
+  const float exponentialRange = 147.4131591f; // exp(5) - 1
+  const float duty = (expf(5.0f * brightnessValue) - 1.0f) / exponentialRange;
+  return (uint16_t)(duty * LED_PWM_PERIOD + 0.5f);
+}
 
 // Button class to handle debouncing and state
 class Button {
@@ -94,6 +172,10 @@ Button leftButton(buttonPin_l);
 Button centerButton(buttonPin_c);
 Button rightButton(buttonPin_r);
 
+// Explicit declarations also keep Arduino's sketch preprocessor happy.
+void handleTimeAdjustment(Button &button, bool isIncrement);
+void handleCenterButton(Button &button);
+
 void setup() {
   byte numDigits = 4;
   byte digitPins[] = {5, 9, 10, 15};
@@ -107,7 +189,7 @@ void setup() {
                resistorsOnSegments, updateWithDelays, leadingZeros,
                disableDecPoint);
 
-  pinMode(ledPin, OUTPUT);
+  setupLedPwm(); // Do not use analogWrite/digitalWrite on D6 after this.
   pinMode(leftButton.pin, INPUT_PULLUP);
   pinMode(centerButton.pin, INPUT_PULLUP);
   pinMode(rightButton.pin, INPUT_PULLUP);
@@ -117,18 +199,6 @@ void setup() {
   // Serial print for debugging
   // don't use serial print on final uploaded code, since it delays the loop
   // Serial.begin(115200);
-}
-
-int convertToPWM(float brightnessValue) {
-  // convert brightness value 0~1 to PWM value.
-  // use exponential function so human can perceive the brightness linearly
-  brightnessValue = constrain(brightnessValue, 0, 1);
-  if (brightnessValue < 0.001)
-    return 0;
-  float e = 2.71828;
-  // make it go between 0 ~ 255
-  int pwmValue = pow(e, 5 * brightnessValue) / pow(e, 5) * 256 - 1;
-  return pwmValue;
 }
 
 void handleTimeAdjustment(Button &button, bool isIncrement) {
@@ -197,12 +267,14 @@ void handleCenterButton(Button &button) {
 
   if (displayOn && !button.ignoreCurrentPress && button.isPressed()) {
     if (!centerButtonLongPressHandled) {
-      unsigned long pressDuration = currentMillis - centerButtonPressTime;
+      unsigned long pressDuration = currentMillis - button.pressStartTime;
       if (pressDuration >= LONG_PRESS_DURATION) {
         // Long press detected
         centerButtonLongPressHandled = true;
         remainingTime = setDuration; // Reset to previously set duration
         timerPaused = true;
+        ledAutoOffArmed = false;
+        ledAutoOff = false;
         lastInteractionTime = currentMillis;
         displayOn = true;
       }
@@ -215,6 +287,10 @@ void handleCenterButton(Button &button) {
         pressDuration < LONG_PRESS_DURATION && !button.ignoreCurrentPress) {
       // Short press detected
       timerPaused = !timerPaused; // Toggle pause/restart
+      if (!timerPaused) {
+        ledAutoOffArmed = false;
+        ledAutoOff = false;
+      }
       lastInteractionTime = currentMillis;
     }
     centerButtonPressTime = 0;
@@ -230,8 +306,9 @@ void updateTimer() {
 
     if (remainingTime == 0) {
       timerPaused = true; // Stop the timer when it reaches zero
-      // Start LED auto-off timer
-      ledTurnOffTime = currentMillis + LED_AUTO_OFF_DURATION;
+      ledAutoOffStartTime = currentMillis;
+      ledAutoOffArmed = true;
+      ledAutoOff = false;
     }
     lastTimerUpdateTime = currentMillis;
   }
@@ -266,52 +343,50 @@ void updateDisplay() {
 }
 
 void updateBrightness() {
-  // Adjust LED brightness
-  float targetBrightness = 0;
-  unsigned long rampdown_dur = 10UL * 60 * 1000; // gradually lower brightness ("sunset" effect)
-  unsigned long rampup_dur = 20UL * 60 * 1000; // gradually increase brightness ("sunrise" effect)
-  float targetMaxBrightness = 0;
-  // pulse it so that the brightness changes as a sine wave (for visual effect + not overheat the LEDs)
-  float pulseFrequency = 0.1;  // Pulse frequency in Hz
-  float sineFactor = (sin(2 * PI * pulseFrequency * (currentMillis / 1000.0)) + 1) / 2;  // changes between 0~1
+  // Limit the expensive math to 100 Hz; the LED pulses independently in hardware.
+  static unsigned long lastBrightnessUpdateTime = 0;
+  unsigned long elapsed = currentMillis - lastBrightnessUpdateTime;
+  if (elapsed < BRIGHTNESS_UPDATE_INTERVAL) return;
+  lastBrightnessUpdateTime = currentMillis;
+
+  const unsigned long rampdown_dur = 10UL * 60 * 1000; // "sunset"
+  const unsigned long rampup_dur = 20UL * 60 * 1000;   // "sunrise"
+  float targetMaxBrightness = 0.0f;
 
   if (remainingTime <= rampup_dur) {
     targetMaxBrightness = (rampup_dur - remainingTime) / (float)rampup_dur;
-    targetMaxBrightness = constrain(targetMaxBrightness, 0.06, 1);
+    targetMaxBrightness = constrain(targetMaxBrightness, 0.0f, 1.0f);
   }
   else if ((setDuration - remainingTime) <= rampdown_dur && !timerPaused) {
-    targetMaxBrightness = 1 - (setDuration - remainingTime) / (float)rampdown_dur;  // 1 -> 0
-    targetMaxBrightness *= 0.2; // 0.2 -> 0  "sunset" effect should be darker than sunrise
-    targetMaxBrightness += 0.06;  // 0.206 -> 0.006 add a small offset so the LED doesn't turn off completely
-  } else {
-    targetMaxBrightness = 0;
+    targetMaxBrightness = 1.0f - (setDuration - remainingTime) / (float)rampdown_dur;
+    targetMaxBrightness *= 0.2f; // Sunset is dimmer, but now fades all the way to 0.
   }
-  // smoothly pulse between 50% and 100% of the targetMaxBrightness
-  targetBrightness = targetMaxBrightness * (0.5 + 0.5 * sineFactor);
+
+  // Preserve the gentle 10-second pulse between 50% and 100% brightness.
+  // Reduce the time before converting to float to keep phase precision after days.
+  float phase = (currentMillis % 10000UL) / 10000.0f;
+  float sineFactor = (sin(2.0f * PI * phase) + 1.0f) / 2.0f;
+  float targetBrightness = targetMaxBrightness * (0.5f + 0.5f * sineFactor);
 
   if (displayOn)
-    targetBrightness = constrain(targetBrightness, 0, 0.03); // limit brightness
+    targetBrightness = constrain(targetBrightness, 0.0f, 0.03f);
 
-  // Turn off LED after auto-off duration
-  if (ledTurnOffTime != 0 && currentMillis >= ledTurnOffTime) {
-    targetBrightness = 0;
-    ledTurnOffTime = 0;
+  // Elapsed-time subtraction handles millis() rollover. Latch the off state;
+  // clearing only the timer would let the sunrise logic relight the next loop.
+  if (ledAutoOffArmed &&
+      currentMillis - ledAutoOffStartTime >= LED_AUTO_OFF_DURATION) {
+    ledAutoOffArmed = false;
+    ledAutoOff = true;
   }
+  if (ledAutoOff) targetBrightness = 0.0f;
 
-  // Exponential smoothing
-  currentBrightness = smoothingFactor * targetBrightness +
-                      (1.0 - smoothingFactor) * currentBrightness;
+  // Time-based smoothing, independent of display refresh speed / loop rate.
+  float alpha = elapsed / (BRIGHTNESS_SMOOTHING_TIME + elapsed);
+  currentBrightness += alpha * (targetBrightness - currentBrightness);
 
-  // Serial.print("0., 1., ");  // to define the y axis range
-  // Serial.print(targetMaxBrightness);
-  // Serial.print(", ");
-  // Serial.print(targetBrightness);
-  // Serial.print(", ");
-  // Serial.println(currentBrightness);
-
-  int pwmValue =
-      convertToPWM(currentBrightness);
-  analogWrite(ledPin, pwmValue);
+  uint16_t pwmValue = convertToPWM(currentBrightness);
+  if (targetBrightness == 0.0f && pwmValue == 0) currentBrightness = 0.0f;
+  writeLedPwm(pwmValue);
 }
 
 void checkInactivity() {

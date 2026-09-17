@@ -11,6 +11,7 @@ Here, we are sharing the Arduino sketches for the firmware and the PCB design (K
 ## Candlelight mode
 
 Press all three buttons together to toggle candlelight mode- the LED gently flickers near full brightness, regardless of the timer state.
+Use the buttons to adjust brightness between 0 and 100.
 
 ## Electronic Components
 

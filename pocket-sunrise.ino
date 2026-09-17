@@ -30,6 +30,7 @@ float currentBrightness = 0.0f;
 const unsigned long BRIGHTNESS_UPDATE_INTERVAL = 10; // milliseconds
 const float BRIGHTNESS_SMOOTHING_TIME = 500.0f;       // milliseconds
 bool candlelightOn = false;
+int candlelightLevel = 80; // User setting, retained when toggling the mode.
 float candlelightTarget = 0.985f;
 unsigned long lastCandlelightChangeTime = 0;
 unsigned long candlelightChangeInterval = 0;
@@ -177,7 +178,7 @@ Button centerButton(buttonPin_c);
 Button rightButton(buttonPin_r);
 
 // Explicit declarations also keep Arduino's sketch preprocessor happy.
-void handleTimeAdjustment(Button &button, bool isIncrement, bool pressed);
+void handleAdjustment(Button &button, bool isIncrement, bool pressed);
 void handleCenterButton(Button &button, bool pressed);
 
 void setup() {
@@ -205,10 +206,15 @@ void setup() {
   // Serial.begin(115200);
 }
 
-void handleTimeAdjustment(Button &button, bool isIncrement, bool pressed) {
+void adjustCandlelight(bool isIncrement) {
+  candlelightLevel = constrain(candlelightLevel + (isIncrement ? 1 : -1), 0, 100);
+  candlelightChangeInterval = 0; // Apply the new range on the next LED update.
+}
+
+void handleAdjustment(Button &button, bool isIncrement, bool pressed) {
   // isIncrement: true for the increment button, false for the decrement button
   if (pressed) {
-    // Allow the other buttons to settle before the first time adjustment.
+    // Allow the other buttons to settle before the first adjustment.
     button.lastIncrementTime = currentMillis;
     lastInteractionTime = currentMillis;
     if (!displayOn) {
@@ -221,7 +227,7 @@ void handleTimeAdjustment(Button &button, bool isIncrement, bool pressed) {
   }
 
   if (displayOn && !button.ignoreCurrentPress && button.isPressed() &&
-      timerPaused) {
+      (candlelightOn || timerPaused)) {
     unsigned long pressDuration = currentMillis - button.pressStartTime;
     // shorten the interval time between each step, the longer the button is pressed
     unsigned long interval = BASE_INTERVAL -
@@ -232,22 +238,31 @@ void handleTimeAdjustment(Button &button, bool isIncrement, bool pressed) {
     interval = constrain(interval, MIN_INTERVAL, BASE_INTERVAL);
 
     if ((currentMillis - button.lastIncrementTime) >= interval) {
-      unsigned long adjustAmount = 1UL * 60 * 1000; // 1 minute
-
-      if (isIncrement) {
-        remainingTime += adjustAmount;
+      if (candlelightOn) {
+        adjustCandlelight(isIncrement);
       } else {
-        remainingTime = remainingTime >= adjustAmount
-                            ? remainingTime - adjustAmount
-                            : 0;
+        unsigned long adjustAmount = 1UL * 60 * 1000; // 1 minute
+        if (isIncrement) {
+          remainingTime += adjustAmount;
+        } else {
+          remainingTime = remainingTime >= adjustAmount
+                              ? remainingTime - adjustAmount
+                              : 0;
+        }
+        setDuration = remainingTime; // Update setDuration
       }
-      setDuration = remainingTime; // Update setDuration
       button.lastIncrementTime = currentMillis;
     }
     lastInteractionTime = currentMillis;
   }
 
   if (button.isReleased()) {
+    // A short candlelight tap still changes one step after chord detection.
+    if (candlelightOn && !button.ignoreCurrentPress &&
+        button.lastIncrementTime == button.pressStartTime) {
+      adjustCandlelight(isIncrement);
+      lastInteractionTime = currentMillis;
+    }
     button.pressStartTime = 0;
     button.ignoreCurrentPress = false;
   }
@@ -258,6 +273,16 @@ void handleTimeAdjustment(Button &button, bool isIncrement, bool pressed) {
 void handleCenterButton(Button &button, bool pressed) {
   static bool centerButtonLongPressHandled = false;
   static unsigned long centerButtonPressTime = 0;
+
+  if (candlelightOn) {
+    // In candlelight mode the center button only shows the brightness setting.
+    if (button.isPressed()) {
+      lastInteractionTime = currentMillis;
+      displayOn = true;
+    }
+    button.updateLastButtonPushed();
+    return;
+  }
 
   if (pressed) {
     centerButtonPressTime = currentMillis;
@@ -332,8 +357,8 @@ void handleButtons() {
     }
     return;
   }
-  handleTimeAdjustment(leftButton, false, leftPressed);
-  handleTimeAdjustment(rightButton, true, rightPressed);
+  handleAdjustment(leftButton, false, leftPressed);
+  handleAdjustment(rightButton, true, rightPressed);
   handleCenterButton(centerButton, centerPressed);
 }
 
@@ -352,6 +377,15 @@ void updateTimer() {
 }
 
 void updateDisplay() {
+  if (candlelightOn) {
+    if (displayOn) {
+      sevseg.setNumber(candlelightLevel); // Plain 0..100, without a decimal point.
+    } else {
+      sevseg.blank();
+    }
+    return;
+  }
+
   // Handle display blinking when paused
   // don't blink if the time is being adjusted (i.e. left or right button is pressed)
   if (timerPaused && !(leftButton.isPressed() || rightButton.isPressed())) {
@@ -418,10 +452,11 @@ void updateBrightness() {
   if (ledAutoOff) targetBrightness = 0.0f;
 
   // Candlelight overrides the normal LED output while the timer keeps running.
-  // After the exponential curve, 0.97..1.0 is roughly 86..100% PWM duty.
+  // Slide a 50-unit target window from 0..50 to 950..1000 (inclusive).
   if (candlelightOn) {
     if (currentMillis - lastCandlelightChangeTime >= candlelightChangeInterval) {
-      candlelightTarget = random(750L, 800L) / 1000.0f;
+      long minimumTarget = candlelightLevel * 950L / 100;
+      candlelightTarget = random(minimumTarget, minimumTarget + 51L) / 1000.0f;
       candlelightChangeInterval = random(200L, 400L);
       lastCandlelightChangeTime = currentMillis;
     }

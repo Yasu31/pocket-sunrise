@@ -29,6 +29,10 @@ const unsigned long LONG_PRESS_DURATION = 1000;
 float currentBrightness = 0.0f;
 const unsigned long BRIGHTNESS_UPDATE_INTERVAL = 10; // milliseconds
 const float BRIGHTNESS_SMOOTHING_TIME = 500.0f;       // milliseconds
+bool candlelightOn = false;
+float candlelightTarget = 0.985f;
+unsigned long lastCandlelightChangeTime = 0;
+unsigned long candlelightChangeInterval = 0;
 
 // LED auto-off variables. Keep the light off until a new session starts.
 unsigned long ledAutoOffStartTime = 0;
@@ -39,7 +43,7 @@ const unsigned long LED_AUTO_OFF_DURATION = 60UL * 60 * 1000;
 // Constants for acceleration effect
 const unsigned long BASE_INTERVAL = 300; // Initial interval between increments (at start)
 const unsigned long MIN_INTERVAL = 10;   // Minimum interval between increments (after pressing for long time)
-const unsigned long MAX_PRESS_DURATION = 6000;
+const unsigned long MAX_PRESS_DURATION = 4000;
 
 // pin assignments
 const int buttonPin_l = 19;
@@ -173,8 +177,8 @@ Button centerButton(buttonPin_c);
 Button rightButton(buttonPin_r);
 
 // Explicit declarations also keep Arduino's sketch preprocessor happy.
-void handleTimeAdjustment(Button &button, bool isIncrement);
-void handleCenterButton(Button &button);
+void handleTimeAdjustment(Button &button, bool isIncrement, bool pressed);
+void handleCenterButton(Button &button, bool pressed);
 
 void setup() {
   byte numDigits = 4;
@@ -201,9 +205,11 @@ void setup() {
   // Serial.begin(115200);
 }
 
-void handleTimeAdjustment(Button &button, bool isIncrement) {
+void handleTimeAdjustment(Button &button, bool isIncrement, bool pressed) {
   // isIncrement: true for the increment button, false for the decrement button
-  if (button.checkButton()) {
+  if (pressed) {
+    // Allow the other buttons to settle before the first time adjustment.
+    button.lastIncrementTime = currentMillis;
     lastInteractionTime = currentMillis;
     if (!displayOn) {
       displayOn = true;
@@ -249,11 +255,11 @@ void handleTimeAdjustment(Button &button, bool isIncrement) {
   button.updateLastButtonPushed();
 }
 
-void handleCenterButton(Button &button) {
+void handleCenterButton(Button &button, bool pressed) {
   static bool centerButtonLongPressHandled = false;
   static unsigned long centerButtonPressTime = 0;
 
-  if (button.checkButton()) {
+  if (pressed) {
     centerButtonPressTime = currentMillis;
     centerButtonLongPressHandled = false;
     lastInteractionTime = currentMillis;
@@ -298,6 +304,37 @@ void handleCenterButton(Button &button) {
   }
 
   button.updateLastButtonPushed();
+}
+
+void handleButtons() {
+  static bool chordActive = false;
+  // Sample all debounced states before dispatching individual actions.
+  bool leftPressed = leftButton.checkButton();
+  bool centerPressed = centerButton.checkButton();
+  bool rightPressed = rightButton.checkButton();
+  bool allPressed = leftButton.isPressed() && centerButton.isPressed() &&
+                    rightButton.isPressed();
+  if (allPressed && !chordActive) {
+    candlelightOn = !candlelightOn;
+    candlelightChangeInterval = 0; // Pick a fresh flicker target on entry.
+    chordActive = true;
+    displayOn = true;
+    lastInteractionTime = currentMillis;
+  }
+  if (chordActive) {
+    // Consume the whole gesture, including staggered releases and long holds.
+    leftButton.updateLastButtonPushed();
+    centerButton.updateLastButtonPushed();
+    rightButton.updateLastButtonPushed();
+    if (!leftButton.isPressed() && !centerButton.isPressed() &&
+        !rightButton.isPressed()) {
+      chordActive = false;
+    }
+    return;
+  }
+  handleTimeAdjustment(leftButton, false, leftPressed);
+  handleTimeAdjustment(rightButton, true, rightPressed);
+  handleCenterButton(centerButton, centerPressed);
 }
 
 void updateTimer() {
@@ -380,8 +417,20 @@ void updateBrightness() {
   }
   if (ledAutoOff) targetBrightness = 0.0f;
 
+  // Candlelight overrides the normal LED output while the timer keeps running.
+  // After the exponential curve, 0.97..1.0 is roughly 86..100% PWM duty.
+  if (candlelightOn) {
+    if (currentMillis - lastCandlelightChangeTime >= candlelightChangeInterval) {
+      candlelightTarget = random(750L, 800L) / 1000.0f;
+      candlelightChangeInterval = random(200L, 400L);
+      lastCandlelightChangeTime = currentMillis;
+    }
+    targetBrightness = candlelightTarget;
+  }
+
   // Time-based smoothing, independent of display refresh speed / loop rate.
-  float alpha = elapsed / (BRIGHTNESS_SMOOTHING_TIME + elapsed);
+  float smoothingTime = candlelightOn ? 120.0f : BRIGHTNESS_SMOOTHING_TIME;
+  float alpha = elapsed / (smoothingTime + elapsed);
   currentBrightness += alpha * (targetBrightness - currentBrightness);
 
   uint16_t pwmValue = convertToPWM(currentBrightness);
@@ -399,9 +448,7 @@ void loop() {
   sevseg.refreshDisplay();
 
   // Handle buttons
-  handleTimeAdjustment(leftButton, false); // Decrement time
-  handleTimeAdjustment(rightButton, true); // Increment time
-  handleCenterButton(centerButton);
+  handleButtons();
 
   // Update timer and display
   updateTimer();

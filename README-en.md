@@ -8,6 +8,10 @@ Here, we are sharing the Arduino sketches for the firmware and the PCB design (K
 - Enclosure parts: https://grabcad.com/library/pocket-sunrise-1
 - Video: https://youtu.be/eCHGJ3ehzJc
 
+## Candlelight mode
+
+Press all three buttons together to toggle candlelight mode- the LED gently flickers near full brightness, regardless of the timer state.
+
 ## Electronic Components
 
 The necessary electronic parts are summarized in this spreadsheet. You can purchase all of them at Akizuki Denshi.

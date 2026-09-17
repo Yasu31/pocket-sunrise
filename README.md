@@ -8,6 +8,10 @@
 - 外装部品: https://grabcad.com/library/pocket-sunrise-1
 - 動画: https://youtu.be/eCHGJ3ehzJc
 
+## キャンドルライトモード
+
+3つのボタンを同時に押すと、タイマーの状態に関わらずLEDが点灯し、ろうそくのように明るさがかすかに変化するモードに切り替えられます。
+
 ## 電子部品
 必要な電子パーツはこちらのスプレッドシートにまとめてあります。すべて秋月電子で買えます。
  →[Pocket Sunrise 電子部品](https://docs.google.com/spreadsheets/d/1AGpVGOaxi01ax8kF4fcREE8NY4uzkjkZFQBg4IJ91os/edit?usp=sharing)

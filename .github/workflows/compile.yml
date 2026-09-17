@@ -3,12 +3,12 @@ name: Compile Nano Every
 on:
   pull_request:
     paths:
-      - 'artificial-sun.ino'
+      - 'pocket-sunrise.ino'
       - '.github/workflows/compile.yml'
   push:
     branches: [main]
     paths:
-      - 'artificial-sun.ino'
+      - 'pocket-sunrise.ino'
       - '.github/workflows/compile.yml'
 
 permissions:
@@ -28,7 +28,7 @@ jobs:
           arduino-cli lib install 'SevSeg@3.7.0'
       - name: Compile both register-emulation settings
         run: |
-          mkdir -p "$RUNNER_TEMP/artificial-sun"
-          cp artificial-sun.ino "$RUNNER_TEMP/artificial-sun/"
-          arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=off --warnings all "$RUNNER_TEMP/artificial-sun"
-          arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=on --warnings all "$RUNNER_TEMP/artificial-sun"
+          mkdir -p "$RUNNER_TEMP/pocket-sunrise"
+          cp pocket-sunrise.ino "$RUNNER_TEMP/pocket-sunrise/"
+          arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=off --warnings all "$RUNNER_TEMP/pocket-sunrise"
+          arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=on --warnings all "$RUNNER_TEMP/pocket-sunrise"

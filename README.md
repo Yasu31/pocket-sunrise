@@ -1,4 +1,4 @@
-# Artificial Sun
+# Pocket Sunrise
 [English README](/README-en.md)
 
 自然な明かりで朝起きれる小型デバイス
@@ -10,7 +10,7 @@
 
 ## 電子部品
 必要な電子パーツはこちらのスプレッドシートにまとめてあります。すべて秋月電子で買えます。
- →[Artificial Sun 電子部品](https://docs.google.com/spreadsheets/d/1AGpVGOaxi01ax8kF4fcREE8NY4uzkjkZFQBg4IJ91os/edit?usp=sharing)
+ →[Pocket Sunrise 電子部品](https://docs.google.com/spreadsheets/d/1AGpVGOaxi01ax8kF4fcREE8NY4uzkjkZFQBg4IJ91os/edit?usp=sharing)
 
 ## 基板
 私はPCBGOGOに発注しましたがどこでも大丈夫だと思います。5枚発注して（初回割ということもありましたが）送料込みでたった1200円でした。

@@ -8719,7 +8719,7 @@
 		(layer "Edge.Cuts")
 		(uuid "3bf3f820-b986-41cc-8c05-45f1bdb458a5")
 	)
-	(gr_text "Artificial Sun PCB v1.0\n2024.08.11 yasunori.xyz"
+	(gr_text "Pocket Sunrise PCB v1.0\n2024.08.11 yasunori.xyz"
 		(at 124 145 0)
 		(layer "F.SilkS")
 		(uuid "1e9b7e3d-7e5d-41ae-a9f2-3baa37edff84")

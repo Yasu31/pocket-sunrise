@@ -27,11 +27,12 @@ I ordered from PCBGOGO, but I think any manufacturer is fine. I ordered 5 boards
 Please refer to the following photos for assembly. Points to note:
 
 - While the LEDs are operated within their rated specifications and the heat generation from the resistors should be within acceptable limits, there is still a possibility of abnormal heat generation in unforeseen cases. Therefore, please make sure to be nearby when using it. Use at your own risk.
-- Use only some of the 300Ω resistors for the 7-segment display, and short-circuit the rest (this design allows you to change the orientation of the 7-segment display later).
+- Solder only 4 of the 300Ω resistors for the 7-segment display, and short-circuit the rest, as you can see in the images. (this design allows you to change the orientation of the 7-segment display later).
 - Although the 25Ω current limiting resistor is well within the allowable range for the LED's rated current, the cement resistor generated significant heat. To reduce heat generation, connect 50Ω resistors in parallel and attach heat sinks. If you assemble as shown in the images, it should fit inside the enclosure parts (of course, using a proper LED driver would reduce heat, but since this was my first PCB design, I prioritized a simple circuit).
 - You may not be able to upload sketches with the Arduino Nano inserted into the PCB. If you can't upload successfully, please remove it once and then upload.
 - Connect the LED to the PCB with about 10 cm of wire. Flexible wire is easier to insert into the enclosure parts.
 - It can be assembled with four M3 nuts and bolts, 12 mm in length. Attaching rubber feet to the bottom will prevent slipping.
+- I recommend you attach the heatsink to the other side of the LED as well as the resistors.
 
 ![](/photos/all.jpg)
 ![](/photos/board_1.jpg)

@@ -1,4 +1,4 @@
-# Artificial Sun
+# Pocket Sunrise
 [Japanese README](/README.md)
 
 A compact device that allows you to wake up in the morning with natural light.
@@ -8,10 +8,15 @@ Here, we are sharing the Arduino sketches for the firmware and the PCB design (K
 - Enclosure parts: https://grabcad.com/library/pocket-sunrise-1
 - Video: https://youtu.be/eCHGJ3ehzJc
 
+## Candlelight mode
+
+Press all three buttons together to toggle candlelight mode- the LED gently flickers near full brightness, regardless of the timer state.
+Use the buttons to adjust brightness between 0 and 100.
+
 ## Electronic Components
 
 The necessary electronic parts are summarized in this spreadsheet. You can purchase all of them at Akizuki Denshi.
-→ [Artificial Sun Electronic Components](https://docs.google.com/spreadsheets/d/1AGpVGOaxi01ax8kF4fcREE8NY4uzkjkZFQBg4IJ91os/edit?usp=sharing)
+→ [Pocket Sunrise Electronic Components](https://docs.google.com/spreadsheets/d/1AGpVGOaxi01ax8kF4fcREE8NY4uzkjkZFQBg4IJ91os/edit?usp=sharing)
 
 ## PCB
 

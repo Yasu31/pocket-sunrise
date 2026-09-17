@@ -1,0 +1,34 @@
+name: Compile Nano Every
+
+on:
+  pull_request:
+    paths:
+      - 'pocket-sunrise.ino'
+      - '.github/workflows/compile.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'pocket-sunrise.ino'
+      - '.github/workflows/compile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install board core and display library
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:megaavr@1.8.8
+          arduino-cli lib install 'SevSeg@3.7.0'
+      - name: Compile both register-emulation settings
+        run: |
+          mkdir -p "$RUNNER_TEMP/pocket-sunrise"
+          cp pocket-sunrise.ino "$RUNNER_TEMP/pocket-sunrise/"
+          arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=off --warnings all "$RUNNER_TEMP/pocket-sunrise"
+          arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=on --warnings all "$RUNNER_TEMP/pocket-sunrise"
